@@ -19,6 +19,7 @@ the Free Software Foundation; either version 2 of the License, or
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -123,7 +124,7 @@ public:
 		}
 
 		const int delta = wheel->angleDelta().y();
-		obs_log(LOG_INFO, "wheel over preview: delta=%d canvas=(%.1f, %.1f)", delta, canvas.x, canvas.y);
+		obs_log(LOG_DEBUG, "wheel over preview: delta=%d canvas=(%.1f, %.1f)", delta, canvas.x, canvas.y);
 
 		if (delta == 0) {
 			return true;
@@ -481,6 +482,7 @@ private:
 		animation.targetScale.y = float(double(info.scale.y) * ratio);
 
 		if (!timer.isActive()) {
+			animationClock.restart();
 			timer.start();
 		}
 
@@ -502,7 +504,15 @@ private:
 			return;
 		}
 
-		const double alpha = std::clamp(settings.smoothness, 0.05, 1.0);
+		double elapsedSeconds = 0.016;
+		if (animationClock.isValid()) {
+			elapsedSeconds = std::clamp(double(animationClock.restart()) / 1000.0, 0.001, 0.050);
+		} else {
+			animationClock.restart();
+		}
+
+		const double duration = std::clamp(settings.smoothness, 0.05, 1.0);
+		const double alpha = 1.0 - std::exp(-elapsedSeconds / duration);
 		struct vec2 nextScale = {};
 		nextScale.x =
 			float(double(info.scale.x) + (double(animation.targetScale.x) - double(info.scale.x)) * alpha);
@@ -561,6 +571,7 @@ private:
 	void stopAnimation()
 	{
 		timer.stop();
+		animationClock.invalidate();
 		if (animation.item) {
 			obs_sceneitem_release(animation.item);
 			animation = {};
@@ -647,6 +658,7 @@ private:
 
 	Settings settings;
 	QTimer timer;
+	QElapsedTimer animationClock;
 	ZoomAnimation animation;
 	QPointer<QDialog> settingsDialog;
 };
