@@ -247,10 +247,7 @@ public:
 	}
 
 private:
-	static void showSettings(void *data)
-	{
-		static_cast<MouseZoomPlugin *>(data)->openSettingsDialog();
-	}
+	static void showSettings(void *data) { static_cast<MouseZoomPlugin *>(data)->openSettingsDialog(); }
 
 	static bool isPreviewClass(QObject *object)
 	{
@@ -296,7 +293,8 @@ private:
 
 		const double widgetWidth = display->width();
 		const double widgetHeight = display->height();
-		const double scale = std::min(widgetWidth / double(ovi.base_width), widgetHeight / double(ovi.base_height));
+		const double scale =
+			std::min(widgetWidth / double(ovi.base_width), widgetHeight / double(ovi.base_height));
 		if (scale <= 0.0) {
 			return false;
 		}
@@ -432,8 +430,8 @@ private:
 		};
 	}
 
-	static struct vec2 anchoredPosition(const CanvasPoint &canvas, const CanvasPoint &local, const AlignOffset &offset,
-					    const struct vec2 &scale)
+	static struct vec2 anchoredPosition(const CanvasPoint &canvas, const CanvasPoint &local,
+					    const AlignOffset &offset, const struct vec2 &scale)
 	{
 		struct vec2 pos = {};
 		pos.x = float(canvas.x - ((local.x - offset.x) * double(scale.x)));
@@ -463,8 +461,8 @@ private:
 		const double speedFactor = std::max(1, settings.speed) / 5.0;
 		const double factor = std::pow(1.10, direction * speedFactor);
 		const double currentAbsX = std::fabs(info.scale.x);
-		const double previousTargetAbsX =
-			(animation.item == item) ? std::fabs(animation.targetScale.x) : currentAbsX;
+		const double previousTargetAbsX = (animation.item == item) ? std::fabs(animation.targetScale.x)
+									   : currentAbsX;
 		const double targetAbsX = std::clamp(previousTargetAbsX * factor, settings.minZoom, settings.maxZoom);
 		const double ratio = targetAbsX / currentAbsX;
 
@@ -506,8 +504,10 @@ private:
 
 		const double alpha = std::clamp(settings.smoothness, 0.05, 1.0);
 		struct vec2 nextScale = {};
-		nextScale.x = float(double(info.scale.x) + (double(animation.targetScale.x) - double(info.scale.x)) * alpha);
-		nextScale.y = float(double(info.scale.y) + (double(animation.targetScale.y) - double(info.scale.y)) * alpha);
+		nextScale.x =
+			float(double(info.scale.x) + (double(animation.targetScale.x) - double(info.scale.x)) * alpha);
+		nextScale.y =
+			float(double(info.scale.y) + (double(animation.targetScale.y) - double(info.scale.y)) * alpha);
 
 		const double remainingX = std::fabs(double(animation.targetScale.x) - double(nextScale.x));
 		const double remainingY = std::fabs(double(animation.targetScale.y) - double(nextScale.y));
@@ -516,7 +516,8 @@ private:
 		}
 
 		info.scale = nextScale;
-		info.pos = anchoredPosition(animation.anchorCanvas, animation.anchorLocal, animation.alignOffset, nextScale);
+		info.pos = anchoredPosition(animation.anchorCanvas, animation.anchorLocal, animation.alignOffset,
+					    nextScale);
 		obs_sceneitem_set_info(animation.item, &info);
 
 		if (nextScale.x == animation.targetScale.x && nextScale.y == animation.targetScale.y) {
