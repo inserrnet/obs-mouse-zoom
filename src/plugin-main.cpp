@@ -460,7 +460,7 @@ private:
 
 		const double direction = double(wheelDelta) / 120.0;
 		const double speedFactor = std::max(1, settings.speed) / 5.0;
-		const double factor = std::pow(1.10, direction * speedFactor);
+		const double factor = std::pow(1.06, direction * speedFactor);
 		const double currentAbsX = std::fabs(info.scale.x);
 		const double previousTargetAbsX = (animation.item == item) ? std::fabs(animation.targetScale.x)
 									   : currentAbsX;
@@ -513,11 +513,19 @@ private:
 
 		const double duration = std::clamp(settings.smoothness, 0.05, 1.0);
 		const double alpha = 1.0 - std::exp(-elapsedSeconds / duration);
+		const double currentAbsX = std::max(0.000001, std::fabs(double(info.scale.x)));
+		const double targetAbsX = std::max(0.000001, std::fabs(double(animation.targetScale.x)));
+		const double currentLogX = std::log(currentAbsX);
+		const double targetLogX = std::log(targetAbsX);
+		const double desiredLogStep = (targetLogX - currentLogX) * alpha;
+		const double maxLogStep = std::log(1.06) * elapsedSeconds / duration;
+		const double logStep = std::clamp(desiredLogStep, -maxLogStep, maxLogStep);
+		const double nextAbsX = std::exp(currentLogX + logStep);
+		const double ratio = nextAbsX / currentAbsX;
+
 		struct vec2 nextScale = {};
-		nextScale.x =
-			float(double(info.scale.x) + (double(animation.targetScale.x) - double(info.scale.x)) * alpha);
-		nextScale.y =
-			float(double(info.scale.y) + (double(animation.targetScale.y) - double(info.scale.y)) * alpha);
+		nextScale.x = float(double(info.scale.x) * ratio);
+		nextScale.y = float(double(info.scale.y) * ratio);
 
 		const double remainingX = std::fabs(double(animation.targetScale.x) - double(nextScale.x));
 		const double remainingY = std::fabs(double(animation.targetScale.y) - double(nextScale.y));
