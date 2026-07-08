@@ -412,7 +412,7 @@ private:
 			return false;
 		}
 
-		obs_sceneitem_get_info(item, &info);
+		obs_sceneitem_get_info2(item, &info);
 		if (std::fabs(info.scale.x) < 0.0001 || std::fabs(info.scale.y) < 0.0001) {
 			obs_log(LOG_WARNING, "scene item has near-zero scale, skipping zoom");
 			return false;
@@ -518,7 +518,7 @@ private:
 		info.scale = nextScale;
 		info.pos = anchoredPosition(animation.anchorCanvas, animation.anchorLocal, animation.alignOffset,
 					    nextScale);
-		obs_sceneitem_set_info(animation.item, &info);
+		obs_sceneitem_set_info2(animation.item, &info);
 
 		if (nextScale.x == animation.targetScale.x && nextScale.y == animation.targetScale.y) {
 			stopAnimation();
@@ -554,7 +554,7 @@ private:
 		info.scale.x = float(signX);
 		info.scale.y = float(signY);
 		info.pos = anchoredPosition(canvasCenter, localCenter, offset, info.scale);
-		obs_sceneitem_set_info(item, &info);
+		obs_sceneitem_set_info2(item, &info);
 		obs_sceneitem_release(item);
 	}
 
