@@ -70,6 +70,7 @@ struct ZoomAnimation {
 	struct vec2 targetScale = {};
 	uint32_t width = 0;
 	uint32_t height = 0;
+	int settleFrames = 0;
 };
 
 class MouseZoomPlugin : public QObject {
@@ -448,6 +449,26 @@ private:
 		return {double(canvasPoint.x), double(canvasPoint.y)};
 	}
 
+	static void applyTransformKeepingAnchor(obs_sceneitem_t *item, struct obs_transform_info &info,
+						const CanvasPoint &anchorCanvas, const CanvasPoint &anchorLocal)
+	{
+		for (int i = 0; i < 4; i++) {
+			obs_sceneitem_set_info2(item, &info);
+
+			const CanvasPoint mappedAnchor = canvasFromSourceLocal(item, anchorLocal);
+			const double dx = anchorCanvas.x - mappedAnchor.x;
+			const double dy = anchorCanvas.y - mappedAnchor.y;
+			if (std::fabs(dx) < 0.01 && std::fabs(dy) < 0.01) {
+				return;
+			}
+
+			info.pos.x += float(dx);
+			info.pos.y += float(dy);
+		}
+
+		obs_sceneitem_set_info2(item, &info);
+	}
+
 	void zoomAt(const CanvasPoint &canvas, int wheelDelta)
 	{
 		obs_sceneitem_t *item = currentTargetItem();
@@ -491,6 +512,7 @@ private:
 		animation.height = height;
 		animation.targetScale.x = float(double(info.scale.x) * ratio);
 		animation.targetScale.y = float(double(info.scale.y) * ratio);
+		animation.settleFrames = 6;
 
 		if (!timer.isActive()) {
 			animationClock.restart();
@@ -533,11 +555,6 @@ private:
 		const double logStep = std::clamp(desiredLogStep, -maxLogStep, maxLogStep);
 		const double nextAbsX = std::exp(currentLogX + logStep);
 		const double ratio = nextAbsX / currentAbsX;
-		const CanvasPoint currentAnchor = canvasFromSourceLocal(animation.item, animation.anchorLocal);
-		const CanvasPoint anchorVector = {
-			currentAnchor.x - double(info.pos.x),
-			currentAnchor.y - double(info.pos.y),
-		};
 
 		struct vec2 nextScale = {};
 		nextScale.x = float(double(info.scale.x) * ratio);
@@ -549,14 +566,15 @@ private:
 			nextScale = animation.targetScale;
 		}
 
-		const double actualRatio = std::fabs(double(nextScale.x)) / currentAbsX;
 		info.scale = nextScale;
-		info.pos.x = float(animation.anchorCanvas.x - (anchorVector.x * actualRatio));
-		info.pos.y = float(animation.anchorCanvas.y - (anchorVector.y * actualRatio));
-		obs_sceneitem_set_info2(animation.item, &info);
+		applyTransformKeepingAnchor(animation.item, info, animation.anchorCanvas, animation.anchorLocal);
 
 		if (nextScale.x == animation.targetScale.x && nextScale.y == animation.targetScale.y) {
-			stopAnimation();
+			if (animation.settleFrames <= 0) {
+				stopAnimation();
+			} else {
+				animation.settleFrames--;
+			}
 		}
 	}
 
@@ -582,21 +600,9 @@ private:
 
 		const double signX = info.scale.x < 0.0f ? -1.0 : 1.0;
 		const double signY = info.scale.y < 0.0f ? -1.0 : 1.0;
-		const double oldAbsX = std::max(0.000001, std::fabs(double(info.scale.x)));
-		const double oldAbsY = std::max(0.000001, std::fabs(double(info.scale.y)));
-		const CanvasPoint currentCenter = canvasFromSourceLocal(item, localCenter);
-		const CanvasPoint centerVector = {
-			currentCenter.x - double(info.pos.x),
-			currentCenter.y - double(info.pos.y),
-		};
-
 		info.scale.x = float(signX);
 		info.scale.y = float(signY);
-		const double ratioX = 1.0 / oldAbsX;
-		const double ratioY = 1.0 / oldAbsY;
-		info.pos.x = float(canvasCenter.x - (centerVector.x * ratioX));
-		info.pos.y = float(canvasCenter.y - (centerVector.y * ratioY));
-		obs_sceneitem_set_info2(item, &info);
+		applyTransformKeepingAnchor(item, info, canvasCenter, localCenter);
 		obs_sceneitem_release(item);
 	}
 
