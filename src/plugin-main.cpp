@@ -566,14 +566,20 @@ private:
 		const double currentAbsX = std::fabs(info.scale.x);
 		const double previousTargetAbsX = (animation.item == item) ? std::fabs(animation.targetScale.x)
 									   : currentAbsX;
-		double targetAbsX = std::clamp(previousTargetAbsX * factor, settings.minZoom, settings.maxZoom);
+		double targetAbsX = previousTargetAbsX * factor;
 		const double maxPendingFactor = std::pow(1.06, speedFactor * 4.0);
 		if (direction > 0.0) {
 			targetAbsX = std::min(targetAbsX, currentAbsX * maxPendingFactor);
+			targetAbsX = std::clamp(targetAbsX, settings.minZoom, settings.maxZoom);
 		} else {
 			targetAbsX = std::max(targetAbsX, currentAbsX / maxPendingFactor);
+			if (currentAbsX >= settings.minZoom) {
+				targetAbsX = std::max(targetAbsX, settings.minZoom);
+			} else {
+				targetAbsX = std::min(targetAbsX, currentAbsX);
+			}
+			targetAbsX = std::min(targetAbsX, settings.maxZoom);
 		}
-		targetAbsX = std::clamp(targetAbsX, settings.minZoom, settings.maxZoom);
 		const double ratio = targetAbsX / currentAbsX;
 
 		if (animation.item != item) {
