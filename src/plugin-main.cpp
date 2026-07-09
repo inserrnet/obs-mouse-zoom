@@ -51,6 +51,7 @@ constexpr double kPreviewEdgeSize = 10.0;
 
 struct Settings {
 	bool enabled = true;
+	bool debugLogging = false;
 	int speed = 5;
 	double smoothness = 0.25;
 	double minZoom = 0.25;
@@ -61,6 +62,19 @@ struct Settings {
 struct CanvasPoint {
 	double x = 0.0;
 	double y = 0.0;
+};
+
+struct PreviewMapping {
+	double displayX = 0.0;
+	double displayY = 0.0;
+	double widgetWidth = 0.0;
+	double widgetHeight = 0.0;
+	double pixelRatio = 1.0;
+	double previewX = 0.0;
+	double previewY = 0.0;
+	double previewScale = 1.0;
+	uint32_t baseWidth = 0;
+	uint32_t baseHeight = 0;
 };
 
 struct ZoomAnimation {
@@ -116,7 +130,8 @@ public:
 
 		const QPointF displayPoint = display->mapFromGlobal(wheel->globalPosition());
 		CanvasPoint canvas;
-		if (!displayToCanvas(display, displayPoint, canvas)) {
+		PreviewMapping mapping;
+		if (!displayToCanvas(display, displayPoint, canvas, mapping)) {
 			return QObject::eventFilter(watched, event);
 		}
 
@@ -125,6 +140,14 @@ public:
 
 		if (delta == 0) {
 			return true;
+		}
+
+		if (settings.debugLogging) {
+			obs_log(LOG_INFO,
+				"preview map: display=(%.2f, %.2f) widget=(%.1f, %.1f) dpr=%.3f preview=(%.2f, %.2f scale=%.6f) base=(%u, %u) canvas=(%.2f, %.2f)",
+				mapping.displayX, mapping.displayY, mapping.widgetWidth, mapping.widgetHeight,
+				mapping.pixelRatio, mapping.previewX, mapping.previewY, mapping.previewScale,
+				mapping.baseWidth, mapping.baseHeight, canvas.x, canvas.y);
 		}
 
 		zoomAt(canvas, delta);
@@ -152,6 +175,10 @@ public:
 		auto *enableBox = new QCheckBox(dialog);
 		enableBox->setChecked(settings.enabled);
 		form->addRow("Enable", enableBox);
+
+		auto *debugBox = new QCheckBox(dialog);
+		debugBox->setChecked(settings.debugLogging);
+		form->addRow("Debug logging", debugBox);
 
 		auto *speedSlider = new QSlider(Qt::Horizontal, dialog);
 		speedSlider->setRange(1, 10);
@@ -203,6 +230,10 @@ public:
 
 		connect(enableBox, &QCheckBox::toggled, dialog, [this](bool checked) {
 			settings.enabled = checked;
+			saveSettings();
+		});
+		connect(debugBox, &QCheckBox::toggled, dialog, [this](bool checked) {
+			settings.debugLogging = checked;
 			saveSettings();
 		});
 		connect(speedSlider, &QSlider::valueChanged, speedSpin, &QSpinBox::setValue);
@@ -281,7 +312,8 @@ private:
 		return widget;
 	}
 
-	static bool displayToCanvas(QWidget *display, const QPointF &displayPoint, CanvasPoint &canvas)
+	static bool displayToCanvas(QWidget *display, const QPointF &displayPoint, CanvasPoint &canvas,
+				    PreviewMapping &mapping)
 	{
 		struct obs_video_info ovi = {};
 		if (!obs_get_video_info(&ovi) || ovi.base_width == 0 || ovi.base_height == 0) {
@@ -310,6 +342,17 @@ private:
 		const double previewY = ((availableHeight - previewHeight) / 2.0) + kPreviewEdgeSize;
 		const double x = ((displayPoint.x() * pixelRatio) - previewX) / previewScale;
 		const double y = ((displayPoint.y() * pixelRatio) - previewY) / previewScale;
+
+		mapping.displayX = displayPoint.x();
+		mapping.displayY = displayPoint.y();
+		mapping.widgetWidth = widgetWidth;
+		mapping.widgetHeight = widgetHeight;
+		mapping.pixelRatio = pixelRatio;
+		mapping.previewX = previewX;
+		mapping.previewY = previewY;
+		mapping.previewScale = previewScale;
+		mapping.baseWidth = ovi.base_width;
+		mapping.baseHeight = ovi.base_height;
 
 		if (x < 0.0 || y < 0.0 || x > double(ovi.base_width) || y > double(ovi.base_height)) {
 			return false;
@@ -490,6 +533,13 @@ private:
 			obs_sceneitem_release(item);
 			return;
 		}
+		if (settings.debugLogging) {
+			const CanvasPoint mapped = canvasFromSourceLocal(item, local);
+			obs_log(LOG_INFO,
+				"anchor start: canvas=(%.2f, %.2f) local=(%.2f, %.2f) mapped=(%.2f, %.2f) error=(%.4f, %.4f)",
+				canvas.x, canvas.y, local.x, local.y, mapped.x, mapped.y, canvas.x - mapped.x,
+				canvas.y - mapped.y);
+		}
 
 		const double direction = double(wheelDelta) / 120.0;
 		const double speedFactor = std::max(1, settings.speed) / 5.0;
@@ -568,6 +618,14 @@ private:
 
 		info.scale = nextScale;
 		applyTransformKeepingAnchor(animation.item, info, animation.anchorCanvas, animation.anchorLocal);
+		if (settings.debugLogging) {
+			const CanvasPoint mapped = canvasFromSourceLocal(animation.item, animation.anchorLocal);
+			obs_log(LOG_INFO,
+				"anchor settle: target=(%.2f, %.2f) mapped=(%.2f, %.2f) error=(%.4f, %.4f) scale=(%.6f, %.6f)",
+				animation.anchorCanvas.x, animation.anchorCanvas.y, mapped.x, mapped.y,
+				animation.anchorCanvas.x - mapped.x, animation.anchorCanvas.y - mapped.y,
+				double(nextScale.x), double(nextScale.y));
+		}
 
 		if (nextScale.x == animation.targetScale.x && nextScale.y == animation.targetScale.y) {
 			if (animation.settleFrames <= 0) {
@@ -642,6 +700,7 @@ private:
 		}
 
 		obs_data_set_default_bool(data, "enabled", settings.enabled);
+		obs_data_set_default_bool(data, "debug_logging", settings.debugLogging);
 		obs_data_set_default_int(data, "speed", settings.speed);
 		obs_data_set_default_double(data, "smoothness", settings.smoothness);
 		obs_data_set_default_double(data, "min_zoom", settings.minZoom);
@@ -649,6 +708,7 @@ private:
 		obs_data_set_default_string(data, "mode", settings.mode.c_str());
 
 		settings.enabled = obs_data_get_bool(data, "enabled");
+		settings.debugLogging = obs_data_get_bool(data, "debug_logging");
 		settings.speed = int(obs_data_get_int(data, "speed"));
 		settings.smoothness = obs_data_get_double(data, "smoothness");
 		settings.minZoom = obs_data_get_double(data, "min_zoom");
@@ -681,6 +741,7 @@ private:
 
 		obs_data_t *data = obs_data_create();
 		obs_data_set_bool(data, "enabled", settings.enabled);
+		obs_data_set_bool(data, "debug_logging", settings.debugLogging);
 		obs_data_set_int(data, "speed", settings.speed);
 		obs_data_set_double(data, "smoothness", settings.smoothness);
 		obs_data_set_double(data, "min_zoom", settings.minZoom);
