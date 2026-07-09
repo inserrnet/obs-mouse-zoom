@@ -11,6 +11,7 @@ the Free Software Foundation; either version 2 of the License, or
 #include <obs-frontend-api.h>
 #include <obs-module.h>
 #include <plugin-support.h>
+#include <graphics/matrix4.h>
 #include <util/platform.h>
 
 #include <QApplication>
@@ -46,7 +47,6 @@ namespace {
 constexpr const char *kSettingsFile = "settings.json";
 constexpr const char *kModeSelectedFirst = "selected_first";
 constexpr const char *kModeTopVisible = "top_visible";
-constexpr double kPi = 3.14159265358979323846;
 
 struct Settings {
 	bool enabled = true;
@@ -62,16 +62,10 @@ struct CanvasPoint {
 	double y = 0.0;
 };
 
-struct AlignOffset {
-	double x = 0.0;
-	double y = 0.0;
-};
-
 struct ZoomAnimation {
 	obs_sceneitem_t *item = nullptr;
 	CanvasPoint anchorCanvas;
 	CanvasPoint anchorLocal;
-	AlignOffset alignOffset;
 	struct vec2 targetScale = {};
 	uint32_t width = 0;
 	uint32_t height = 0;
@@ -316,25 +310,6 @@ private:
 		return true;
 	}
 
-	static AlignOffset alignmentOffset(uint32_t alignment, uint32_t width, uint32_t height)
-	{
-		AlignOffset offset;
-
-		if (alignment & OBS_ALIGN_RIGHT) {
-			offset.x = double(width);
-		} else if (!(alignment & OBS_ALIGN_LEFT)) {
-			offset.x = double(width) / 2.0;
-		}
-
-		if (alignment & OBS_ALIGN_BOTTOM) {
-			offset.y = double(height);
-		} else if (!(alignment & OBS_ALIGN_TOP)) {
-			offset.y = double(height) / 2.0;
-		}
-
-		return offset;
-	}
-
 	static bool selectedItemCallback(obs_scene_t *, obs_sceneitem_t *item, void *data)
 	{
 		auto **selected = static_cast<obs_sceneitem_t **>(data);
@@ -423,43 +398,46 @@ private:
 		return true;
 	}
 
-	static CanvasPoint rotatePoint(const CanvasPoint &point, double degrees)
+	static bool sourceLocalFromCanvas(obs_sceneitem_t *item, const CanvasPoint &canvas, CanvasPoint &local)
 	{
-		const double radians = degrees * kPi / 180.0;
-		const double c = std::cos(radians);
-		const double s = std::sin(radians);
-		return {
-			(point.x * c) - (point.y * s),
-			(point.x * s) + (point.y * c),
-		};
+		struct matrix4 transform = {};
+		struct matrix4 inverse = {};
+		struct vec3 canvasPoint = {};
+		struct vec3 localPoint = {};
+
+		obs_sceneitem_get_draw_transform(item, &transform);
+		if (std::fabs(matrix4_determinant(&transform)) < 0.000001f) {
+			return false;
+		}
+
+		matrix4_inv(&inverse, &transform);
+		canvasPoint.x = float(canvas.x);
+		canvasPoint.y = float(canvas.y);
+		canvasPoint.z = 0.0f;
+		vec3_transform(&localPoint, &canvasPoint, &inverse);
+
+		if (!std::isfinite(localPoint.x) || !std::isfinite(localPoint.y)) {
+			return false;
+		}
+
+		local.x = double(localPoint.x);
+		local.y = double(localPoint.y);
+		return true;
 	}
 
-	static CanvasPoint canvasToLocal(const CanvasPoint &canvas, const struct obs_transform_info &info,
-					 const AlignOffset &offset)
+	static CanvasPoint canvasFromSourceLocal(obs_sceneitem_t *item, const CanvasPoint &local)
 	{
-		const CanvasPoint fromOrigin = {
-			canvas.x - double(info.pos.x),
-			canvas.y - double(info.pos.y),
-		};
-		const CanvasPoint unrotated = rotatePoint(fromOrigin, -double(info.rot));
-		return {
-			offset.x + (unrotated.x / double(info.scale.x)),
-			offset.y + (unrotated.y / double(info.scale.y)),
-		};
-	}
+		struct matrix4 transform = {};
+		struct vec3 localPoint = {};
+		struct vec3 canvasPoint = {};
 
-	static struct vec2 anchoredPosition(const CanvasPoint &canvas, const CanvasPoint &local,
-					    const AlignOffset &offset, double rotation, const struct vec2 &scale)
-	{
-		const CanvasPoint scaled = {
-			(local.x - offset.x) * double(scale.x),
-			(local.y - offset.y) * double(scale.y),
-		};
-		const CanvasPoint rotated = rotatePoint(scaled, rotation);
-		struct vec2 pos = {};
-		pos.x = float(canvas.x - rotated.x);
-		pos.y = float(canvas.y - rotated.y);
-		return pos;
+		obs_sceneitem_get_draw_transform(item, &transform);
+		localPoint.x = float(local.x);
+		localPoint.y = float(local.y);
+		localPoint.z = 0.0f;
+		vec3_transform(&canvasPoint, &localPoint, &transform);
+
+		return {double(canvasPoint.x), double(canvasPoint.y)};
 	}
 
 	void zoomAt(const CanvasPoint &canvas, int wheelDelta)
@@ -477,8 +455,12 @@ private:
 			return;
 		}
 
-		const AlignOffset offset = alignmentOffset(info.alignment, width, height);
-		const CanvasPoint local = canvasToLocal(canvas, info, offset);
+		CanvasPoint local;
+		if (!sourceLocalFromCanvas(item, canvas, local)) {
+			obs_log(LOG_WARNING, "failed to map preview cursor to scene item space");
+			obs_sceneitem_release(item);
+			return;
+		}
 
 		const double direction = double(wheelDelta) / 120.0;
 		const double speedFactor = std::max(1, settings.speed) / 5.0;
@@ -497,7 +479,6 @@ private:
 
 		animation.anchorCanvas = canvas;
 		animation.anchorLocal = local;
-		animation.alignOffset = offset;
 		animation.width = width;
 		animation.height = height;
 		animation.targetScale.x = float(double(info.scale.x) * ratio);
@@ -556,8 +537,11 @@ private:
 		}
 
 		info.scale = nextScale;
-		info.pos = anchoredPosition(animation.anchorCanvas, animation.anchorLocal, animation.alignOffset,
-					    double(info.rot), nextScale);
+		obs_sceneitem_set_info2(animation.item, &info);
+
+		const CanvasPoint mappedAnchor = canvasFromSourceLocal(animation.item, animation.anchorLocal);
+		info.pos.x += float(animation.anchorCanvas.x - mappedAnchor.x);
+		info.pos.y += float(animation.anchorCanvas.y - mappedAnchor.y);
 		obs_sceneitem_set_info2(animation.item, &info);
 
 		if (nextScale.x == animation.targetScale.x && nextScale.y == animation.targetScale.y) {
@@ -582,18 +566,17 @@ private:
 			return;
 		}
 
-		const AlignOffset offset = alignmentOffset(info.alignment, width, height);
 		const CanvasPoint localCenter = {double(width) / 2.0, double(height) / 2.0};
-		const CanvasPoint canvasCenter = {
-			double(info.pos.x) + ((localCenter.x - offset.x) * double(info.scale.x)),
-			double(info.pos.y) + ((localCenter.y - offset.y) * double(info.scale.y)),
-		};
+		const CanvasPoint canvasCenter = canvasFromSourceLocal(item, localCenter);
 
 		const double signX = info.scale.x < 0.0f ? -1.0 : 1.0;
 		const double signY = info.scale.y < 0.0f ? -1.0 : 1.0;
 		info.scale.x = float(signX);
 		info.scale.y = float(signY);
-		info.pos = anchoredPosition(canvasCenter, localCenter, offset, double(info.rot), info.scale);
+		obs_sceneitem_set_info2(item, &info);
+		const CanvasPoint mappedCenter = canvasFromSourceLocal(item, localCenter);
+		info.pos.x += float(canvasCenter.x - mappedCenter.x);
+		info.pos.y += float(canvasCenter.y - mappedCenter.y);
 		obs_sceneitem_set_info2(item, &info);
 		obs_sceneitem_release(item);
 	}
