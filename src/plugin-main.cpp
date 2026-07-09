@@ -46,6 +46,7 @@ namespace {
 constexpr const char *kSettingsFile = "settings.json";
 constexpr const char *kModeSelectedFirst = "selected_first";
 constexpr const char *kModeTopVisible = "top_visible";
+constexpr double kPi = 3.14159265358979323846;
 
 struct Settings {
 	bool enabled = true;
@@ -422,21 +423,42 @@ private:
 		return true;
 	}
 
+	static CanvasPoint rotatePoint(const CanvasPoint &point, double degrees)
+	{
+		const double radians = degrees * kPi / 180.0;
+		const double c = std::cos(radians);
+		const double s = std::sin(radians);
+		return {
+			(point.x * c) - (point.y * s),
+			(point.x * s) + (point.y * c),
+		};
+	}
+
 	static CanvasPoint canvasToLocal(const CanvasPoint &canvas, const struct obs_transform_info &info,
 					 const AlignOffset &offset)
 	{
+		const CanvasPoint fromOrigin = {
+			canvas.x - double(info.pos.x),
+			canvas.y - double(info.pos.y),
+		};
+		const CanvasPoint unrotated = rotatePoint(fromOrigin, -double(info.rot));
 		return {
-			offset.x + ((canvas.x - double(info.pos.x)) / double(info.scale.x)),
-			offset.y + ((canvas.y - double(info.pos.y)) / double(info.scale.y)),
+			offset.x + (unrotated.x / double(info.scale.x)),
+			offset.y + (unrotated.y / double(info.scale.y)),
 		};
 	}
 
 	static struct vec2 anchoredPosition(const CanvasPoint &canvas, const CanvasPoint &local,
-					    const AlignOffset &offset, const struct vec2 &scale)
+					    const AlignOffset &offset, double rotation, const struct vec2 &scale)
 	{
+		const CanvasPoint scaled = {
+			(local.x - offset.x) * double(scale.x),
+			(local.y - offset.y) * double(scale.y),
+		};
+		const CanvasPoint rotated = rotatePoint(scaled, rotation);
 		struct vec2 pos = {};
-		pos.x = float(canvas.x - ((local.x - offset.x) * double(scale.x)));
-		pos.y = float(canvas.y - ((local.y - offset.y) * double(scale.y)));
+		pos.x = float(canvas.x - rotated.x);
+		pos.y = float(canvas.y - rotated.y);
 		return pos;
 	}
 
@@ -535,7 +557,7 @@ private:
 
 		info.scale = nextScale;
 		info.pos = anchoredPosition(animation.anchorCanvas, animation.anchorLocal, animation.alignOffset,
-					    nextScale);
+					    double(info.rot), nextScale);
 		obs_sceneitem_set_info2(animation.item, &info);
 
 		if (nextScale.x == animation.targetScale.x && nextScale.y == animation.targetScale.y) {
@@ -571,7 +593,7 @@ private:
 		const double signY = info.scale.y < 0.0f ? -1.0 : 1.0;
 		info.scale.x = float(signX);
 		info.scale.y = float(signY);
-		info.pos = anchoredPosition(canvasCenter, localCenter, offset, info.scale);
+		info.pos = anchoredPosition(canvasCenter, localCenter, offset, double(info.rot), info.scale);
 		obs_sceneitem_set_info2(item, &info);
 		obs_sceneitem_release(item);
 	}
