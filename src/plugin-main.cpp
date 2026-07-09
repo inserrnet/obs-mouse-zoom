@@ -528,17 +528,25 @@ private:
 		}
 
 		CanvasPoint local;
-		if (!sourceLocalFromCanvas(item, canvas, local)) {
-			obs_log(LOG_WARNING, "failed to map preview cursor to scene item space");
-			obs_sceneitem_release(item);
-			return;
+		const double anchorDistance = (animation.item == item) ? std::hypot(canvas.x - animation.anchorCanvas.x,
+										    canvas.y - animation.anchorCanvas.y)
+								       : 0.0;
+		const bool reuseAnchor = animation.item == item && anchorDistance < 3.0;
+		if (reuseAnchor) {
+			local = animation.anchorLocal;
+		} else {
+			if (!sourceLocalFromCanvas(item, canvas, local)) {
+				obs_log(LOG_WARNING, "failed to map preview cursor to scene item space");
+				obs_sceneitem_release(item);
+				return;
+			}
 		}
 		if (settings.debugLogging) {
 			const CanvasPoint mapped = canvasFromSourceLocal(item, local);
 			obs_log(LOG_INFO,
-				"anchor start: canvas=(%.2f, %.2f) local=(%.2f, %.2f) mapped=(%.2f, %.2f) error=(%.4f, %.4f)",
+				"anchor start: canvas=(%.2f, %.2f) local=(%.2f, %.2f) mapped=(%.2f, %.2f) error=(%.4f, %.4f) reuse=%s",
 				canvas.x, canvas.y, local.x, local.y, mapped.x, mapped.y, canvas.x - mapped.x,
-				canvas.y - mapped.y);
+				canvas.y - mapped.y, reuseAnchor ? "true" : "false");
 		}
 
 		const double direction = double(wheelDelta) / 120.0;
