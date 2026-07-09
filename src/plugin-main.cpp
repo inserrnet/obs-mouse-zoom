@@ -24,6 +24,7 @@ the Free Software Foundation; either version 2 of the License, or
 #include <QEvent>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QPointer>
 #include <QPushButton>
 #include <QSlider>
@@ -118,6 +119,16 @@ public:
 
 	bool eventFilter(QObject *watched, QEvent *event) override
 	{
+		if (event->type() == QEvent::KeyPress && settings.enabled && timer.isActive()) {
+			auto *key = static_cast<QKeyEvent *>(event);
+			if (key->key() == Qt::Key_Space && !key->isAutoRepeat()) {
+				stopAnimation();
+				obs_log(LOG_INFO, "zoom animation stopped by Space");
+				key->accept();
+				return true;
+			}
+		}
+
 		if (event->type() != QEvent::Wheel || !settings.enabled) {
 			return QObject::eventFilter(watched, event);
 		}
@@ -555,7 +566,14 @@ private:
 		const double currentAbsX = std::fabs(info.scale.x);
 		const double previousTargetAbsX = (animation.item == item) ? std::fabs(animation.targetScale.x)
 									   : currentAbsX;
-		const double targetAbsX = std::clamp(previousTargetAbsX * factor, settings.minZoom, settings.maxZoom);
+		double targetAbsX = std::clamp(previousTargetAbsX * factor, settings.minZoom, settings.maxZoom);
+		const double maxPendingFactor = std::pow(1.06, speedFactor * 4.0);
+		if (direction > 0.0) {
+			targetAbsX = std::min(targetAbsX, currentAbsX * maxPendingFactor);
+		} else {
+			targetAbsX = std::max(targetAbsX, currentAbsX / maxPendingFactor);
+		}
+		targetAbsX = std::clamp(targetAbsX, settings.minZoom, settings.maxZoom);
 		const double ratio = targetAbsX / currentAbsX;
 
 		if (animation.item != item) {
