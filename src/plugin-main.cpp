@@ -525,6 +525,11 @@ private:
 		const double logStep = std::clamp(desiredLogStep, -maxLogStep, maxLogStep);
 		const double nextAbsX = std::exp(currentLogX + logStep);
 		const double ratio = nextAbsX / currentAbsX;
+		const CanvasPoint currentAnchor = canvasFromSourceLocal(animation.item, animation.anchorLocal);
+		const CanvasPoint anchorVector = {
+			currentAnchor.x - double(info.pos.x),
+			currentAnchor.y - double(info.pos.y),
+		};
 
 		struct vec2 nextScale = {};
 		nextScale.x = float(double(info.scale.x) * ratio);
@@ -536,12 +541,10 @@ private:
 			nextScale = animation.targetScale;
 		}
 
+		const double actualRatio = std::fabs(double(nextScale.x)) / currentAbsX;
 		info.scale = nextScale;
-		obs_sceneitem_set_info2(animation.item, &info);
-
-		const CanvasPoint mappedAnchor = canvasFromSourceLocal(animation.item, animation.anchorLocal);
-		info.pos.x += float(animation.anchorCanvas.x - mappedAnchor.x);
-		info.pos.y += float(animation.anchorCanvas.y - mappedAnchor.y);
+		info.pos.x = float(animation.anchorCanvas.x - (anchorVector.x * actualRatio));
+		info.pos.y = float(animation.anchorCanvas.y - (anchorVector.y * actualRatio));
 		obs_sceneitem_set_info2(animation.item, &info);
 
 		if (nextScale.x == animation.targetScale.x && nextScale.y == animation.targetScale.y) {
@@ -571,12 +574,20 @@ private:
 
 		const double signX = info.scale.x < 0.0f ? -1.0 : 1.0;
 		const double signY = info.scale.y < 0.0f ? -1.0 : 1.0;
+		const double oldAbsX = std::max(0.000001, std::fabs(double(info.scale.x)));
+		const double oldAbsY = std::max(0.000001, std::fabs(double(info.scale.y)));
+		const CanvasPoint currentCenter = canvasFromSourceLocal(item, localCenter);
+		const CanvasPoint centerVector = {
+			currentCenter.x - double(info.pos.x),
+			currentCenter.y - double(info.pos.y),
+		};
+
 		info.scale.x = float(signX);
 		info.scale.y = float(signY);
-		obs_sceneitem_set_info2(item, &info);
-		const CanvasPoint mappedCenter = canvasFromSourceLocal(item, localCenter);
-		info.pos.x += float(canvasCenter.x - mappedCenter.x);
-		info.pos.y += float(canvasCenter.y - mappedCenter.y);
+		const double ratioX = 1.0 / oldAbsX;
+		const double ratioY = 1.0 / oldAbsY;
+		info.pos.x = float(canvasCenter.x - (centerVector.x * ratioX));
+		info.pos.y = float(canvasCenter.y - (centerVector.y * ratioY));
 		obs_sceneitem_set_info2(item, &info);
 		obs_sceneitem_release(item);
 	}
