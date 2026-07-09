@@ -322,8 +322,8 @@ private:
 		}
 
 		const double pixelRatio = display->devicePixelRatioF();
-		const double widgetWidth = double(display->width()) * pixelRatio;
-		const double widgetHeight = double(display->height()) * pixelRatio;
+		const double widgetWidth = std::round(double(display->width()) * pixelRatio);
+		const double widgetHeight = std::round(double(display->height()) * pixelRatio);
 		const double availableWidth = widgetWidth - (kPreviewEdgeSize * 2.0);
 		const double availableHeight = widgetHeight - (kPreviewEdgeSize * 2.0);
 		if (availableWidth <= 0.0 || availableHeight <= 0.0 || pixelRatio <= 0.0) {
