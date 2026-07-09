@@ -47,6 +47,7 @@ namespace {
 constexpr const char *kSettingsFile = "settings.json";
 constexpr const char *kModeSelectedFirst = "selected_first";
 constexpr const char *kModeTopVisible = "top_visible";
+constexpr double kPreviewEdgeSize = 10.0;
 
 struct Settings {
 	bool enabled = true;
@@ -112,7 +113,7 @@ public:
 			return QObject::eventFilter(watched, event);
 		}
 
-		const QPoint displayPoint = display->mapFromGlobal(wheel->globalPosition().toPoint());
+		const QPointF displayPoint = display->mapFromGlobal(wheel->globalPosition());
 		CanvasPoint canvas;
 		if (!displayToCanvas(display, displayPoint, canvas)) {
 			return QObject::eventFilter(watched, event);
@@ -279,7 +280,7 @@ private:
 		return widget;
 	}
 
-	static bool displayToCanvas(QWidget *display, const QPoint &displayPoint, CanvasPoint &canvas)
+	static bool displayToCanvas(QWidget *display, const QPointF &displayPoint, CanvasPoint &canvas)
 	{
 		struct obs_video_info ovi = {};
 		if (!obs_get_video_info(&ovi) || ovi.base_width == 0 || ovi.base_height == 0) {
@@ -287,20 +288,27 @@ private:
 			return false;
 		}
 
-		const double widgetWidth = display->width();
-		const double widgetHeight = display->height();
-		const double scale =
-			std::min(widgetWidth / double(ovi.base_width), widgetHeight / double(ovi.base_height));
-		if (scale <= 0.0) {
+		const double pixelRatio = display->devicePixelRatioF();
+		const double widgetWidth = double(display->width()) * pixelRatio;
+		const double widgetHeight = double(display->height()) * pixelRatio;
+		const double availableWidth = widgetWidth - (kPreviewEdgeSize * 2.0);
+		const double availableHeight = widgetHeight - (kPreviewEdgeSize * 2.0);
+		if (availableWidth <= 0.0 || availableHeight <= 0.0 || pixelRatio <= 0.0) {
 			return false;
 		}
 
-		const double previewWidth = double(ovi.base_width) * scale;
-		const double previewHeight = double(ovi.base_height) * scale;
-		const double offsetX = (widgetWidth - previewWidth) / 2.0;
-		const double offsetY = (widgetHeight - previewHeight) / 2.0;
-		const double x = (double(displayPoint.x()) - offsetX) / scale;
-		const double y = (double(displayPoint.y()) - offsetY) / scale;
+		const double previewScale =
+			std::min(availableWidth / double(ovi.base_width), availableHeight / double(ovi.base_height));
+		if (previewScale <= 0.0) {
+			return false;
+		}
+
+		const double previewWidth = double(ovi.base_width) * previewScale;
+		const double previewHeight = double(ovi.base_height) * previewScale;
+		const double previewX = ((availableWidth - previewWidth) / 2.0) + kPreviewEdgeSize;
+		const double previewY = ((availableHeight - previewHeight) / 2.0) + kPreviewEdgeSize;
+		const double x = ((displayPoint.x() * pixelRatio) - previewX) / previewScale;
+		const double y = ((displayPoint.y() * pixelRatio) - previewY) / previewScale;
 
 		if (x < 0.0 || y < 0.0 || x > double(ovi.base_width) || y > double(ovi.base_height)) {
 			return false;
