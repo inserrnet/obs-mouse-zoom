@@ -613,6 +613,11 @@ private:
 		const double logStep = std::clamp(desiredLogStep, -maxLogStep, maxLogStep);
 		const double nextAbsX = std::exp(currentLogX + logStep);
 		const double ratio = nextAbsX / currentAbsX;
+		const CanvasPoint currentAnchor = canvasFromSourceLocal(animation.item, animation.anchorLocal);
+		const CanvasPoint anchorVector = {
+			currentAnchor.x - double(info.pos.x),
+			currentAnchor.y - double(info.pos.y),
+		};
 
 		struct vec2 nextScale = {};
 		nextScale.x = float(double(info.scale.x) * ratio);
@@ -624,8 +629,11 @@ private:
 			nextScale = animation.targetScale;
 		}
 
+		const double actualRatio = std::fabs(double(nextScale.x)) / currentAbsX;
 		info.scale = nextScale;
-		applyTransformKeepingAnchor(animation.item, info, animation.anchorCanvas, animation.anchorLocal);
+		info.pos.x = float(animation.anchorCanvas.x - (anchorVector.x * actualRatio));
+		info.pos.y = float(animation.anchorCanvas.y - (anchorVector.y * actualRatio));
+		obs_sceneitem_set_info2(animation.item, &info);
 		if (settings.debugLogging) {
 			const CanvasPoint mapped = canvasFromSourceLocal(animation.item, animation.anchorLocal);
 			obs_log(LOG_INFO,
